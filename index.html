@@ -21,6 +21,7 @@
         .btn-danger { background: #dc3545; color: white; } .btn-danger:hover { background: #c82333; }
         .btn-success { background: #28a745; color: white; } .btn-success:hover { background: #218838; }
         .btn-purple { background: #6f42c1; color: white; } .btn-purple:hover { background: #5a32a3; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .search-box { padding: 7px 12px; border: 1px solid #ced4da; border-radius: 4px; font-size: 13px; width: 160px; }
         .legend { display: flex; gap: 15px; align-items: center; font-size: 13px; }
         .legend-item { display: flex; align-items: center; gap: 4px; }
@@ -53,7 +54,8 @@
             text-overflow: ellipsis;
         }
         .student-name input:focus { background: #e8f5e9; }
-        .student-name input:disabled { background: #f5f5f5; color: #666; cursor: not-allowed; }
+        .student-name input:disabled { background: #f5f5f5; color: #666; cursor: default; }
+        .student-name .readonly-name { display: block; padding: 5px 2px; text-align: center; font-size: 13px; }
         
         .date-header { min-width: 32px; font-size: 11px; }
         .date-header .day-num { font-size: 13px; font-weight: bold; }
@@ -145,7 +147,11 @@
         .daily-rate-card .rate-text { font-size: 13px; font-weight: bold; color: #333; min-width: 45px; text-align: right; }
         .daily-rate-card .rate-detail { font-size: 11px; color: #666; margin-top: 4px; }
         
-        @media print { body { padding: 0; background: white; } .toolbar, .modal-overlay, .toast, .summary-panel, .batch-bar, .daily-rate-panel, .cloud-panel, .readonly-banner { display: none !important; } .container { box-shadow: none; border-radius: 0; } .table-wrapper { max-height: none; overflow: visible; } .attendance-cell:hover { transform: none; box-shadow: none; } }
+        /* 编辑模式按钮组 */
+        .edit-only { display: flex; gap: 10px; align-items: center; }
+        .edit-only.hidden { display: none !important; }
+        
+        @media print { body { padding: 0; background: white; } .toolbar, .modal-overlay, .toast, .summary-panel, .batch-bar, .daily-rate-panel, .cloud-panel, .readonly-banner, .edit-only { display: none !important; } .container { box-shadow: none; border-radius: 0; } .table-wrapper { max-height: none; overflow: visible; } .attendance-cell:hover { transform: none; box-shadow: none; } }
     </style>
 </head>
 <body>
@@ -163,9 +169,13 @@
         
         <div class="toolbar" id="mainToolbar">
             <div class="toolbar-left">
-                <button class="btn btn-primary" onclick="addStudent()" id="btnAdd">➕ 添加学员</button>
-                <button class="btn btn-secondary" onclick="removeStudent()" id="btnRemove">➖ 删除学员</button>
-                <button class="btn btn-info" onclick="toggleBatchMode()" id="btnBatch">📋 批量</button>
+                <!-- 编辑功能：添加/删除学员、批量 -->
+                <div class="edit-only" id="editGroupLeft">
+                    <button class="btn btn-primary" onclick="addStudent()">➕ 添加学员</button>
+                    <button class="btn btn-secondary" onclick="removeStudent()">➖ 删除学员</button>
+                    <button class="btn btn-info" onclick="toggleBatchMode()">📋 批量</button>
+                </div>
+                <!-- 搜索：只读和编辑模式都可用 -->
                 <input type="text" class="search-box" id="searchName" placeholder="搜索学员姓名..." oninput="filterStudents()">
             </div>
             <div class="toolbar-right">
@@ -175,13 +185,17 @@
                     <div class="legend-item"><div class="legend-symbol" style="background:#ffe0b2;color:#e65100;">○</div><span>早退</span></div>
                     <div class="legend-item"><div class="legend-symbol" style="background:#f8d7da;color:#721c24;">×</div><span>缺勤</span></div>
                 </div>
-                <button class="btn btn-purple" onclick="toggleCloudPanel()" id="btnCloud">☁️ 云端分享</button>
+                <!-- 编辑功能：云端分享、清空 -->
+                <div class="edit-only" id="editGroupRight">
+                    <button class="btn btn-purple" onclick="toggleCloudPanel()">☁️ 云端分享</button>
+                    <button class="btn btn-danger" onclick="clearAllData()">🗑️ 清空</button>
+                </div>
+                <!-- 查看功能：只读和编辑模式都可用 -->
                 <button class="btn btn-success" onclick="toggleDailyRate()">📅 日统计</button>
                 <button class="btn btn-info" onclick="toggleSummary()">📊 统计</button>
                 <button class="btn btn-warning" onclick="exportJSON()">💾 导出</button>
                 <button class="btn btn-warning" onclick="exportCSV()">📄 CSV</button>
                 <button class="btn btn-secondary" onclick="window.print()">🖨️ 打印</button>
-                <button class="btn btn-danger" onclick="clearAllData()" id="btnClear">🗑️ 清空</button>
             </div>
         </div>
         
@@ -393,23 +407,20 @@ let attendanceData = JSON.parse(localStorage.getItem('jiayuan_attendance_v2')) |
 let currentCell = null;
 let selectedStatus = null;
 let batchMode = false;
-let isReadonly = false;  // 只读模式标记
-let currentGistId = null; // 当前加载的 Gist ID
+let isReadonly = false;
+let currentGistId = null;
 
 // ========== 初始化 ==========
 function init() {
-    // 检测 URL 参数，判断是否通过分享链接进入
     const urlParams = new URLSearchParams(window.location.search);
     const gistId = urlParams.get('gist');
     
     if (gistId) {
-        // 通过分享链接进入，加载云端数据（只读模式）
         isReadonly = true;
         currentGistId = gistId;
         enterReadonlyMode();
         loadFromGistById(gistId);
     } else {
-        // 正常编辑模式
         renderTable();
         loadData();
     }
@@ -418,14 +429,19 @@ function init() {
 // ========== 只读模式 ==========
 function enterReadonlyMode() {
     document.getElementById('readonlyBanner').classList.add('active');
-    document.getElementById('mainToolbar').style.display = 'none';
+    
+    // 隐藏编辑功能按钮组
+    document.getElementById('editGroupLeft').classList.add('hidden');
+    document.getElementById('editGroupRight').classList.add('hidden');
+    
+    // 更新底部提示
     document.getElementById('noteSection').innerHTML = 
         '<strong>🔒 只读查看模式</strong> &nbsp;&nbsp; 您正在查看他人分享的考勤数据，无法编辑。' +
-        '&nbsp;&nbsp; <a href="#" onclick="exitReadonly()" style="color:#2196f3;">返回编辑模式</a>';
+        '&nbsp;&nbsp; <a href="#" onclick="exitReadonly()" style="color:#2196f3;">返回编辑模式</a>' +
+        '&nbsp;&nbsp; | &nbsp;&nbsp; 可以正常使用统计、导出、打印功能';
 }
 
 function exitReadonly() {
-    // 清除 URL 参数，重新加载页面
     window.location.href = window.location.pathname;
 }
 
@@ -452,10 +468,16 @@ function renderBody() {
     students.forEach((student, idx) => {
         bodyHTML += '<tr>';
         bodyHTML += `<td class="sticky-col" rowspan="2">${idx + 1}</td>`;
-        const nameInput = isReadonly 
-            ? `<span style="display:block;padding:5px 2px;text-align:center;font-size:13px;">${student.name || ''}</span>`
-            : `<input type="text" value="${student.name}" onchange="updateName(${student.id}, this.value)" placeholder="姓名" title="${student.name}" ${isReadonly ? 'disabled' : ''}>`;
-        bodyHTML += `<td class="sticky-col-2 student-name" rowspan="2">${nameInput}</td>`;
+        
+        // 姓名列：只读模式下显示文本，编辑模式下显示输入框
+        let nameCell;
+        if (isReadonly) {
+            nameCell = `<span class="readonly-name">${student.name || ''}</span>`;
+        } else {
+            nameCell = `<input type="text" value="${student.name}" onchange="updateName(${student.id}, this.value)" placeholder="姓名" title="${student.name}">`;
+        }
+        bodyHTML += `<td class="sticky-col-2 student-name" rowspan="2">${nameCell}</td>`;
+        
         bodyHTML += '<td class="sticky-col-3">上午</td>';
         dates.forEach((d, di) => {
             const cellKey = `${student.id}_${d.date}_am`;
@@ -736,7 +758,7 @@ function updateSummary() {
     `;
 }
 
-// ========== 导出功能 ==========
+// ========== 导出功能（只读模式下也可用） ==========
 function exportJSON() {
     const data = {
         exportTime: new Date().toLocaleString('zh-CN'),
@@ -789,7 +811,7 @@ function clearAllData() {
 
 // ========== 本地存储 ==========
 function saveData() {
-    if (isReadonly) return; // 只读模式下不保存到本地
+    if (isReadonly) return;
     localStorage.setItem('jiayuan_students_v2', JSON.stringify(students));
     localStorage.setItem('jiayuan_attendance_v2', JSON.stringify(attendanceData));
 }
@@ -804,7 +826,6 @@ function toggleCloudPanel() {
     panel.classList.toggle('active');
 }
 
-// 上传到 GitHub Gist
 async function uploadToGist() {
     const token = document.getElementById('githubToken').value.trim();
     if (!token) {
@@ -833,7 +854,7 @@ async function uploadToGist() {
             },
             body: JSON.stringify({
                 description: '嘉元煤矿考勤数据',
-                public: true,  // 公开 Gist，任何人可访问
+                public: true,
                 files: {
                     'attendance.json': {
                         content: JSON.stringify(data, null, 2)
@@ -851,14 +872,11 @@ async function uploadToGist() {
         const gistId = result.id;
         currentGistId = gistId;
         
-        // 生成分享链接
         const shareUrl = `${window.location.origin}${window.location.pathname}?gist=${gistId}`;
         document.getElementById('shareLink').value = shareUrl;
         document.getElementById('shareLinkBox').classList.add('active');
         
         showToast('✅ 上传成功！分享链接已生成');
-        
-        // 保存 Token 到本地（方便下次使用）
         localStorage.setItem('jiayuan_github_token', token);
         
     } catch (error) {
@@ -867,7 +885,6 @@ async function uploadToGist() {
     }
 }
 
-// 从 GitHub Gist 加载（通过输入框）
 async function loadFromGist() {
     const token = document.getElementById('githubToken').value.trim();
     if (!token) {
@@ -875,7 +892,6 @@ async function loadFromGist() {
         return;
     }
     
-    // 尝试从本地存储获取上次使用的 Gist ID
     const lastGistId = localStorage.getItem('jiayuan_last_gist_id');
     const gistId = prompt('请输入 Gist ID（或留空使用最近的上传）：', lastGistId || '');
     
@@ -887,7 +903,6 @@ async function loadFromGist() {
     await loadFromGistById(gistId || lastGistId, token);
 }
 
-// 从 Gist ID 加载数据（核心函数）
 async function loadFromGistById(gistId, token) {
     showToast('正在从云端加载...');
     
@@ -922,12 +937,10 @@ async function loadFromGistById(gistId, token) {
         
         const data = JSON.parse(fileContent);
         
-        // 验证数据格式
         if (data.students && data.attendance) {
             students = data.students;
             attendanceData = data.attendance;
             
-            // 如果是编辑模式，保存到本地
             if (!isReadonly) {
                 saveData();
             }
@@ -935,12 +948,10 @@ async function loadFromGistById(gistId, token) {
             renderTable();
             renderBody();
             
-            // 保存 Gist ID
             localStorage.setItem('jiayuan_last_gist_id', gistId);
             
             showToast('✅ 数据加载成功！');
             
-            // 如果是从分享链接进入，关闭云端面板
             if (isReadonly) {
                 document.getElementById('cloudPanel').classList.remove('active');
             }
@@ -954,11 +965,10 @@ async function loadFromGistById(gistId, token) {
     }
 }
 
-// 复制分享链接
 function copyShareLink() {
     const input = document.getElementById('shareLink');
     input.select();
-    input.setSelectionRange(0, 99999); // 移动端兼容
+    input.setSelectionRange(0, 99999);
     
     try {
         navigator.clipboard.writeText(input.value).then(() => {
@@ -968,7 +978,6 @@ function copyShareLink() {
             }, 2000);
         });
     } catch (err) {
-        // 降级方案
         document.execCommand('copy');
         document.getElementById('copyTip').style.display = 'inline';
         setTimeout(() => {
@@ -985,9 +994,7 @@ function showToast(msg) {
     setTimeout(() => toast.classList.remove('show'), 2500);
 }
 
-// 页面加载完成后初始化
 document.addEventListener('DOMContentLoaded', function() {
-    // 尝试恢复保存的 Token
     const savedToken = localStorage.getItem('jiayuan_github_token');
     if (savedToken) {
         document.getElementById('githubToken').value = savedToken;
